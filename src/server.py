@@ -107,6 +107,184 @@ class TradeMCPServer:
                     }
                 ),
                 Tool(
+                    name="comprehensive_analysis",
+                    description="综合技术分析报告，包含趋势判断、买卖信号、关键价位、风险管理建议",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "交易对符号（如 BTC/USDT）"
+                            },
+                            "timeframes": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "时间周期列表，默认 ['4h', '1d']"
+                            },
+                            "analysis_type": {
+                                "type": "string",
+                                "description": "分析类型",
+                                "enum": ["full", "quick", "custom"],
+                                "default": "full"
+                            }
+                        },
+                        "required": ["symbol"]
+                    }
+                ),
+                Tool(
+                    name="trend_strength",
+                    description="趋势强度分析（ADX/DMI系统），判断趋势方向和强度",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "交易对符号（如 BTC/USDT）"
+                            },
+                            "timeframe": {
+                                "type": "string",
+                                "description": "K 线周期",
+                                "default": "1d"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "K 线数量",
+                                "default": 100
+                            }
+                        },
+                        "required": ["symbol"]
+                    }
+                ),
+                Tool(
+                    name="multi_timeframe_analysis",
+                    description="多周期共振分析，确认趋势一致性",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "交易对符号（如 BTC/USDT）"
+                            },
+                            "timeframes": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "时间周期列表，默认 ['1h', '4h', '1d', '1w']"
+                            }
+                        },
+                        "required": ["symbol"]
+                    }
+                ),
+                Tool(
+                    name="pattern_recognition",
+                    description="K线形态识别，检测蜡烛图形态和图表形态",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "交易对符号（如 BTC/USDT）"
+                            },
+                            "timeframe": {
+                                "type": "string",
+                                "description": "K 线周期",
+                                "default": "1d"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "K 线数量",
+                                "default": 100
+                            }
+                        },
+                        "required": ["symbol"]
+                    }
+                ),
+                Tool(
+                    name="support_resistance",
+                    description="支撑阻力分析，识别关键价格位、Pivot Points、斐波那契回撤位",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "交易对符号（如 BTC/USDT）"
+                            },
+                            "timeframe": {
+                                "type": "string",
+                                "description": "K 线周期",
+                                "default": "1d"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "K 线数量",
+                                "default": 200
+                            }
+                        },
+                        "required": ["symbol"]
+                    }
+                ),
+                Tool(
+                    name="risk_calculator",
+                    description="风险管理计算器，计算止损位、仓位大小、风险回报比",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "交易对符号（如 BTC/USDT）"
+                            },
+                            "entry_price": {
+                                "type": "number",
+                                "description": "入场价格"
+                            },
+                            "account_balance": {
+                                "type": "number",
+                                "description": "账户余额"
+                            },
+                            "risk_per_trade": {
+                                "type": "number",
+                                "description": "每笔交易风险比例（%）",
+                                "default": 1.0
+                            },
+                            "target_type": {
+                                "type": "string",
+                                "description": "止损目标类型",
+                                "enum": ["atr", "support"],
+                                "default": "atr"
+                            },
+                            "timeframe": {
+                                "type": "string",
+                                "description": "K 线周期",
+                                "default": "1d"
+                            }
+                        },
+                        "required": ["symbol", "entry_price", "account_balance"]
+                    }
+                ),
+                Tool(
+                    name="divergence_detector",
+                    description="背离检测，检测价格与指标之间的背离信号",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "交易对符号（如 BTC/USDT）"
+                            },
+                            "timeframe": {
+                                "type": "string",
+                                "description": "K 线周期",
+                                "default": "1d"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "K 线数量",
+                                "default": 100
+                            }
+                        },
+                        "required": ["symbol"]
+                    }
+                ),
+                Tool(
                     name="place_order",
                     description="在 Binance 下单交易（支持现货和保证金交易）",
                     inputSchema={
@@ -316,6 +494,52 @@ class TradeMCPServer:
             timeframe = arguments.get("timeframe", "1d")
             limit = arguments.get("limit", 100)
             return self.technical_analysis.calculate_indicators(symbol, timeframe, limit)
+        
+        elif name == "comprehensive_analysis":
+            symbol = arguments.get("symbol")
+            timeframes = arguments.get("timeframes")
+            analysis_type = arguments.get("analysis_type", "full")
+            return self.technical_analysis.comprehensive_analysis(symbol, timeframes, analysis_type)
+        
+        elif name == "trend_strength":
+            symbol = arguments.get("symbol")
+            timeframe = arguments.get("timeframe", "1d")
+            limit = arguments.get("limit", 100)
+            return self.technical_analysis.trend_strength(symbol, timeframe, limit)
+        
+        elif name == "multi_timeframe_analysis":
+            symbol = arguments.get("symbol")
+            timeframes = arguments.get("timeframes")
+            return self.technical_analysis.multi_timeframe_analysis(symbol, timeframes)
+        
+        elif name == "pattern_recognition":
+            symbol = arguments.get("symbol")
+            timeframe = arguments.get("timeframe", "1d")
+            limit = arguments.get("limit", 100)
+            return self.technical_analysis.pattern_recognition(symbol, timeframe, limit)
+        
+        elif name == "support_resistance":
+            symbol = arguments.get("symbol")
+            timeframe = arguments.get("timeframe", "1d")
+            limit = arguments.get("limit", 200)
+            return self.technical_analysis.support_resistance(symbol, timeframe, limit)
+        
+        elif name == "risk_calculator":
+            symbol = arguments.get("symbol")
+            entry_price = arguments.get("entry_price")
+            account_balance = arguments.get("account_balance")
+            risk_per_trade = arguments.get("risk_per_trade", 1.0)
+            target_type = arguments.get("target_type", "atr")
+            timeframe = arguments.get("timeframe", "1d")
+            return self.technical_analysis.risk_calculator(
+                symbol, entry_price, account_balance, risk_per_trade, target_type, timeframe
+            )
+        
+        elif name == "divergence_detector":
+            symbol = arguments.get("symbol")
+            timeframe = arguments.get("timeframe", "1d")
+            limit = arguments.get("limit", 100)
+            return self.technical_analysis.divergence_detector(symbol, timeframe, limit)
         
         elif name == "place_order":
             if not self.ccxt.is_configured():

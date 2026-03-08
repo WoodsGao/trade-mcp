@@ -13,21 +13,19 @@ class CCXTService:
         self.exchange_id = exchange_id
         self.exchange = None
         self._configured = False
+        self._public_only = False
         
-        if settings.binance_configured and exchange_id == "binance":
-            try:
-                # 构建交易所配置
+        try:
+            if settings.binance_configured and exchange_id == "binance":
                 exchange_config = {
                     'apiKey': settings.BINANCE_API_KEY,
                     'secret': settings.BINANCE_API_SECRET,
                 }
                 
-                # 配置 Demo Trading 模式
                 if settings.binance_demo:
-                    # Demo Trading - Binance 新的统一模拟交易环境（支持现货和合约）
                     exchange_config['options'] = {
-                        'defaultType': 'spot',  # 默认现货
-                        'demo': True,  # 启用 Demo 模式
+                        'defaultType': 'spot',
+                        'demo': True,
                         'fetchCurrencies': False,
                     }
                     print("使用 Binance Demo Trading（模拟交易）")
@@ -35,45 +33,76 @@ class CCXTService:
                 else:
                     print("使用 Binance 正式网络")
                 
-                # 配置交易类型（现货/合约）
                 if settings.binance_futures:
                     if 'options' not in exchange_config:
                         exchange_config['options'] = {}
-                    exchange_config['options']['defaultType'] = 'future'  # 合约交易
+                    exchange_config['options']['defaultType'] = 'future'
                     print("使用合约交易（期货）")
                 else:
                     if 'options' not in exchange_config:
                         exchange_config['options'] = {}
-                    exchange_config['options']['defaultType'] = 'spot'  # 现货交易
+                    exchange_config['options']['defaultType'] = 'spot'
                     print("使用现货交易")
                 
-                # 创建交易所实例
                 self.exchange = ccxt.binance(exchange_config)
                 
-                # 启用 Demo Trading（如果配置了）
                 if settings.binance_demo:
                     self.exchange.enable_demo_trading(True)
                 
-                # 加载交易所配置
                 self.exchange.load_markets()
-                
                 self._configured = True
-                print(f"Binance 初始化成功")
-            except ccxt.AuthenticationError as e:
-                print(f"Binance 认证失败：{e}")
-                print("请检查：1) API Key 是否正确 2) 是否使用了正确的网络（测试网/正式网）")
-                self._configured = False
-            except ccxt.NetworkError as e:
-                print(f"Binance 网络错误：{e}")
-                print("可能原因：地区限制、网络连接问题")
-                self._configured = False
-            except Exception as e:
-                print(f"初始化交易所连接失败：{e}")
-                self._configured = False
+                print(f"Binance 初始化成功（完整模式）")
+            else:
+                self.exchange = ccxt.binance({
+                    'enableRateLimit': True,
+                    'options': {
+                        'defaultType': 'spot',
+                        'fetchCurrencies': False,
+                    }
+                })
+                self.exchange.load_markets()
+                self._public_only = True
+                print("Binance 初始化成功（公开数据模式 - 无需 API Key）")
+                print("提示：设置 BINANCE_API_KEY 和 BINANCE_API_SECRET 可启用交易功能")
+                
+        except ccxt.AuthenticationError as e:
+            print(f"Binance 认证失败：{e}")
+            print("请检查：1) API Key 是否正确 2) 是否使用了正确的网络（测试网/正式网）")
+            self._init_public_mode()
+        except ccxt.NetworkError as e:
+            print(f"Binance 网络错误：{e}")
+            print("可能原因：地区限制、网络连接问题")
+            self._init_public_mode()
+        except Exception as e:
+            print(f"初始化交易所连接失败：{e}")
+            self._init_public_mode()
+    
+    def _init_public_mode(self):
+        """初始化公开数据模式"""
+        try:
+            self.exchange = ccxt.binance({
+                'enableRateLimit': True,
+                'options': {
+                    'defaultType': 'spot',
+                    'fetchCurrencies': False,
+                }
+            })
+            self.exchange.load_markets()
+            self._public_only = True
+            self._configured = False
+            print("已切换到公开数据模式")
+        except Exception as e:
+            print(f"公开数据模式初始化失败：{e}")
+            self._public_only = False
+            self._configured = False
     
     def is_configured(self) -> bool:
-        """检查服务是否已配置"""
+        """检查服务是否已配置（完整模式，支持交易）"""
         return self._configured
+    
+    def can_fetch_public_data(self) -> bool:
+        """检查是否可以获取公开数据"""
+        return self._configured or self._public_only
     
     def get_balance(self) -> dict:
         """
