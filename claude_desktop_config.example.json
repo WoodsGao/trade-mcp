@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "trade-mcp": {
+      "command": "C:\\Projects\\trade-mcp\\venv\\Scripts\\python.exe",
+      "args": ["-m", "src.cli"],
+      "cwd": "C:\\Projects\\trade-mcp",
+      "env": {
+        "FINNHUB_API_KEY": "your_finnhub_api_key_here",
+        "BINANCE_API_KEY": "your_binance_api_key_here",
+        "BINANCE_API_SECRET": "your_binance_api_secret_here",
+        "BINANCE_TESTNET": "true",
+        "BINANCE_FUTURES": "false",
+        "MCP_SERVER_HOST": "127.0.0.1",
+        "MCP_SERVER_PORT": "8000",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
