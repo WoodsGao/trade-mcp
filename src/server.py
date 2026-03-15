@@ -11,7 +11,7 @@ from mcp.types import Tool, TextContent
 
 from .config.settings import get_settings
 from .services.finnhub_service import get_finnhub_service
-from .services.ccxt_service import get_ccxt_service
+from .services.binance_service import get_binance_service
 from .services.technical_analysis_service import get_technical_analysis_service
 
 logging.basicConfig(
@@ -27,7 +27,7 @@ class TradeMCPServer:
     def __init__(self):
         self.settings = get_settings()
         self.finnhub = get_finnhub_service()
-        self.ccxt = get_ccxt_service()
+        self.binance = get_binance_service()
         self.technical_analysis = get_technical_analysis_service()
         
         self.server = Server("trade-mcp")
@@ -150,6 +150,35 @@ class TradeMCPServer:
                                 "type": "integer",
                                 "description": "K 线数量",
                                 "default": 100
+                            }
+                        },
+                        "required": ["symbol"]
+                    }
+                ),
+                Tool(
+                    name="rolling_vwap",
+                    description="Rolling VWAP（滚动成交量加权平均价），用于判断日内趋势方向和支撑阻力",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "交易对符号（如 BTC/USDT）"
+                            },
+                            "timeframe": {
+                                "type": "string",
+                                "description": "K 线周期",
+                                "default": "1d"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "K 线数量",
+                                "default": 100
+                            },
+                            "window": {
+                                "type": "integer",
+                                "description": "滚动窗口大小",
+                                "default": 20
                             }
                         },
                         "required": ["symbol"]
@@ -501,6 +530,13 @@ class TradeMCPServer:
             analysis_type = arguments.get("analysis_type", "full")
             return self.technical_analysis.comprehensive_analysis(symbol, timeframes, analysis_type)
         
+        elif name == "rolling_vwap":
+            symbol = arguments.get("symbol")
+            timeframe = arguments.get("timeframe", "1d")
+            limit = arguments.get("limit", 100)
+            window = arguments.get("window", 20)
+            return self.technical_analysis.rolling_vwap(symbol, timeframe, limit, window)
+        
         elif name == "trend_strength":
             symbol = arguments.get("symbol")
             timeframe = arguments.get("timeframe", "1d")
@@ -542,7 +578,7 @@ class TradeMCPServer:
             return self.technical_analysis.divergence_detector(symbol, timeframe, limit)
         
         elif name == "place_order":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
             symbol = arguments.get("symbol")
@@ -556,77 +592,77 @@ class TradeMCPServer:
             if margin_mode:
                 params['marginMode'] = margin_mode
             
-            return self.ccxt.place_order(symbol, order_type, side, amount, price, params)
+            return self.binance.place_order(symbol, order_type, side, amount, price, params)
         
         elif name == "cancel_order":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
             order_id = arguments.get("order_id")
             symbol = arguments.get("symbol")
-            return self.ccxt.cancel_order(order_id, symbol)
+            return self.binance.cancel_order(order_id, symbol)
         
         elif name == "get_balance":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
-            return self.ccxt.get_balance()
+            return self.binance.get_balance()
         
         elif name == "get_positions":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
             symbol = arguments.get("symbol")
-            return self.ccxt.get_positions(symbol)
+            return self.binance.get_positions(symbol)
         
         elif name == "get_orderbook":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
             symbol = arguments.get("symbol")
             limit = arguments.get("limit", 20)
-            return self.ccxt.get_orderbook(symbol, limit)
+            return self.binance.get_orderbook(symbol, limit)
         
         elif name == "get_tickers":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
             symbols = arguments.get("symbols")
-            return self.ccxt.get_tickers(symbols)
+            return self.binance.get_tickers(symbols)
         
         elif name == "get_margin_modes":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
             symbol = arguments.get("symbol")
-            return self.ccxt.get_margin_modes(symbol)
+            return self.binance.get_margin_modes(symbol)
         
         elif name == "get_cross_borrow_rate":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
             code = arguments.get("code")
-            return self.ccxt.get_cross_borrow_rate(code)
+            return self.binance.get_cross_borrow_rate(code)
         
         elif name == "get_isolated_borrow_rate":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
             symbol = arguments.get("symbol")
-            return self.ccxt.get_isolated_borrow_rate(symbol)
+            return self.binance.get_isolated_borrow_rate(symbol)
         
         elif name == "get_margin_balance":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
-            return self.ccxt.get_margin_balance()
+            return self.binance.get_margin_balance()
         
         elif name == "get_margin_positions":
-            if not self.ccxt.is_configured():
+            if not self.binance.is_configured():
                 return {"error": "Binance 未配置，请设置 API 密钥"}
             
             symbols = arguments.get("symbols")
-            return self.ccxt.get_margin_positions(symbols)
+            return self.binance.get_margin_positions(symbols)
         
         else:
             return {"error": f"未知工具：{name}"}
@@ -635,7 +671,7 @@ class TradeMCPServer:
         """运行 MCP 服务器"""
         logger.info("启动 Trade MCP Server...")
         logger.info(f"Finnhub 配置状态：{'已配置' if self.finnhub.is_configured() else '未配置'}")
-        logger.info(f"Binance 配置状态：{'已配置' if self.ccxt.is_configured() else '未配置'}")
+        logger.info(f"Binance 配置状态：{'已配置' if self.binance.is_configured() else '未配置'}")
         
         async with stdio_server() as (read_stream, write_stream):
             await self.server.run(

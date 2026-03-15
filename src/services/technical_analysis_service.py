@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
-from .ccxt_service import get_ccxt_service
+from .binance_service import get_binance_service
 
 
 INDICATOR_CONFIG = {
@@ -28,6 +28,7 @@ INDICATOR_CONFIG = {
     "adx_threshold": 25,
     "obv_period": 20,
     "mfi_period": 14,
+    "vwap_period": 20,
 }
 
 
@@ -35,24 +36,45 @@ class TechnicalAnalysisService:
     """技术指标计算服务 - 专业级"""
     
     def __init__(self):
-        self.ccxt_service = get_ccxt_service()
+        self.binance_service = get_binance_service()
         self.config = INDICATOR_CONFIG
+    
+    def _fetch_ohlcv(self, symbol: str, timeframe: str = "1d", limit: int = 100) -> Tuple[Optional[np.ndarray], Optional[str]]:
+        """
+        统一的 OHLCV 数据获取方法
+        
+        Returns:
+            (ohlcv_data, error_message)
+        """
+        if not self.binance_service.can_fetch_public_data():
+            return None, "Binance 未配置，无法获取 K 线数据"
+        
+        ohlcv_data = self.binance_service.get_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        if "error" in ohlcv_data:
+            return None, ohlcv_data["error"]
+        
+        ohlcv = ohlcv_data.get('candles', [])
+        if not ohlcv or len(ohlcv) < 20:
+            return None, "K 线数据不足，至少需要 20 根 K 线"
+        
+        return ohlcv, None
     
     def calculate_indicators(self, symbol: str, timeframe: str = "1d", limit: int = 100) -> Dict:
         """
         计算多个技术指标（基础版）
         """
-        if not self.ccxt_service.can_fetch_public_data():
-            return {"error": "Binance 未配置，无法获取 K 线数据"}
+        ohlcv, error = self._fetch_ohlcv(symbol, timeframe, limit)
+        if error:
+            return {"error": error}
         
         try:
-            ohlcv = self.ccxt_service.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
             
             if not ohlcv or len(ohlcv) < 50:
                 return {"error": "K 线数据不足，至少需要 50 根 K 线"}
             
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
+            # 转换为 numpy 数组
             open_price = df['open'].values
             high_price = df['high'].values
             low_price = df['low'].values
@@ -89,6 +111,10 @@ class TechnicalAnalysisService:
             indicators['STOCH_K'] = self._safe_array(slowk)
             indicators['STOCH_D'] = self._safe_array(slowd)
             
+            window = self.config.get('vwap_period', 20)
+            typical_price = (high_price + low_price + close_price) / 3
+            indicators['Rolling_VWAP'] = self._safe_array(self._calculate_rolling_vwap(typical_price, volume, window))
+            
             latest_indicators = {}
             for key, value in indicators.items():
                 if value is not None and len(value) > 0:
@@ -96,13 +122,13 @@ class TechnicalAnalysisService:
                     latest_indicators[key] = float(latest_val) if not np.isnan(latest_val) else None
             
             latest_ohlcv = {
-                "timestamp": int(ohlcv[-1][0]),
-                "datetime": datetime.fromtimestamp(ohlcv[-1][0] / 1000).isoformat(),
-                "open": float(ohlcv[-1][1]),
-                "high": float(ohlcv[-1][2]),
-                "low": float(ohlcv[-1][3]),
-                "close": float(ohlcv[-1][4]),
-                "volume": float(ohlcv[-1][5])
+                "timestamp": int(ohlcv[-1]['timestamp']),
+                "datetime": datetime.fromtimestamp(ohlcv[-1]['timestamp'] / 1000).isoformat(),
+                "open": float(ohlcv[-1]['open']),
+                "high": float(ohlcv[-1]['high']),
+                "low": float(ohlcv[-1]['low']),
+                "close": float(ohlcv[-1]['close']),
+                "volume": float(ohlcv[-1]['volume'])
             }
             
             return {
@@ -115,7 +141,11 @@ class TechnicalAnalysisService:
             }
             
         except Exception as e:
-            return {"error": f"计算技术指标失败：{str(e)}"}
+            import traceback
+            error_msg = f"计算技术指标失败：{str(e)}"
+            print(f"[Technical Analysis Error] {error_msg}")
+            traceback.print_exc()
+            return {"error": error_msg}
     
     def comprehensive_analysis(self, symbol: str, timeframes: List[str] = None, 
                                analysis_type: str = "full") -> Dict:
@@ -127,7 +157,7 @@ class TechnicalAnalysisService:
             timeframes: 时间周期列表，默认 ["4h", "1d"]
             analysis_type: 分析类型 "full" | "quick" | "custom"
         """
-        if not self.ccxt_service.can_fetch_public_data():
+        if not self.binance_service.can_fetch_public_data():
             return {"error": "Binance 未配置"}
         
         if timeframes is None:
@@ -135,10 +165,13 @@ class TechnicalAnalysisService:
         
         try:
             primary_tf = timeframes[0] if timeframes else "1d"
-            ohlcv = self.ccxt_service.exchange.fetch_ohlcv(symbol, timeframe=primary_tf, limit=200)
+            ohlcv_data = self.binance_service.get_ohlcv(symbol, timeframe=primary_tf, limit=200)
+            if "error" in ohlcv_data:
+                return ohlcv_data
+            ohlcv = ohlcv_data.get('candles', [])
             
-            if not ohlcv or len(ohlcv) < 100:
-                return {"error": "K线数据不足，至少需要 100 根 K 线"}
+            if not ohlcv or len(ohlcv) < 20:
+                return {"error": f"K线数据不足，至少需要 20 根 K 线，当前只有 {len(ohlcv)} 根"}
             
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
@@ -151,7 +184,7 @@ class TechnicalAnalysisService:
             
             trend_analysis = self._analyze_trend(open_price, high_price, low_price, close_price, volume)
             momentum_analysis = self._analyze_momentum(high_price, low_price, close_price, volume)
-            volume_analysis = self._analyze_volume(close_price, volume)
+            volume_analysis = self._analyze_volume(close_price, high_price, low_price, volume)
             volatility_analysis = self._analyze_volatility(high_price, low_price, close_price)
             
             support_resistance = self._identify_support_resistance(high_price, low_price, close_price, volume)
@@ -201,11 +234,14 @@ class TechnicalAnalysisService:
         """
         趋势强度分析（ADX/DMI系统）
         """
-        if not self.ccxt_service.can_fetch_public_data():
+        if not self.binance_service.can_fetch_public_data():
             return {"error": "Binance 未配置"}
         
         try:
-            ohlcv = self.ccxt_service.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            ohlcv_data = self.binance_service.get_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            if "error" in ohlcv_data:
+                return ohlcv_data
+            ohlcv = ohlcv_data.get('candles', [])
             
             if not ohlcv or len(ohlcv) < 50:
                 return {"error": "K线数据不足"}
@@ -283,7 +319,7 @@ class TechnicalAnalysisService:
         """
         多周期共振分析
         """
-        if not self.ccxt_service.can_fetch_public_data():
+        if not self.binance_service.can_fetch_public_data():
             return {"error": "Binance 未配置"}
         
         if timeframes is None:
@@ -297,7 +333,11 @@ class TechnicalAnalysisService:
             
             for tf in timeframes:
                 limit = 100 if tf != "1w" else 52
-                ohlcv = self.ccxt_service.exchange.fetch_ohlcv(symbol, timeframe=tf, limit=limit)
+                ohlcv_data = self.binance_service.get_ohlcv(symbol, timeframe=tf, limit=limit)
+                if "error" in ohlcv_data:
+                    timeframe_signals[tf] = ohlcv_data
+                    continue
+                ohlcv = ohlcv_data.get('candles', [])
                 
                 if not ohlcv or len(ohlcv) < 50:
                     timeframe_signals[tf] = {"error": "数据不足"}
@@ -355,11 +395,14 @@ class TechnicalAnalysisService:
         """
         K线形态识别
         """
-        if not self.ccxt_service.can_fetch_public_data():
+        if not self.binance_service.can_fetch_public_data():
             return {"error": "Binance 未配置"}
         
         try:
-            ohlcv = self.ccxt_service.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            ohlcv_data = self.binance_service.get_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            if "error" in ohlcv_data:
+                return ohlcv_data
+            ohlcv = ohlcv_data.get('candles', [])
             
             if not ohlcv or len(ohlcv) < 50:
                 return {"error": "K线数据不足"}
@@ -440,11 +483,14 @@ class TechnicalAnalysisService:
         """
         支撑阻力分析
         """
-        if not self.ccxt_service.can_fetch_public_data():
+        if not self.binance_service.can_fetch_public_data():
             return {"error": "Binance 未配置"}
         
         try:
-            ohlcv = self.ccxt_service.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            ohlcv_data = self.binance_service.get_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            if "error" in ohlcv_data:
+                return ohlcv_data
+            ohlcv = ohlcv_data.get('candles', [])
             
             if not ohlcv or len(ohlcv) < 50:
                 return {"error": "K线数据不足"}
@@ -508,11 +554,14 @@ class TechnicalAnalysisService:
         """
         风险管理计算器
         """
-        if not self.ccxt_service.can_fetch_public_data():
+        if not self.binance_service.can_fetch_public_data():
             return {"error": "Binance 未配置"}
         
         try:
-            ohlcv = self.ccxt_service.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=100)
+            ohlcv_data = self.binance_service.get_ohlcv(symbol, timeframe=timeframe, limit=100)
+            if "error" in ohlcv_data:
+                return ohlcv_data
+            ohlcv = ohlcv_data.get('candles', [])
             
             if not ohlcv or len(ohlcv) < 50:
                 return {"error": "K线数据不足"}
@@ -579,11 +628,14 @@ class TechnicalAnalysisService:
         """
         背离检测
         """
-        if not self.ccxt_service.can_fetch_public_data():
+        if not self.binance_service.can_fetch_public_data():
             return {"error": "Binance 未配置"}
         
         try:
-            ohlcv = self.ccxt_service.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            ohlcv_data = self.binance_service.get_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            if "error" in ohlcv_data:
+                return ohlcv_data
+            ohlcv = ohlcv_data.get('candles', [])
             
             if not ohlcv or len(ohlcv) < 50:
                 return {"error": "K线数据不足"}
@@ -716,10 +768,10 @@ class TechnicalAnalysisService:
             "momentum_direction": "bullish" if rsi_val > 50 else "bearish"
         }
     
-    def _analyze_volume(self, close_price, volume) -> Dict:
+    def _analyze_volume(self, close_price, high_price, low_price, volume) -> Dict:
         """成交量分析"""
         obv = talib.OBV(close_price, volume)
-        mfi = talib.MFI(close_price, close_price, close_price, volume, timeperiod=14)
+        mfi = talib.MFI(high_price, low_price, close_price, volume, timeperiod=14)
         
         obv_val = float(obv[-1]) if not np.isnan(obv[-1]) else 0
         obv_prev = float(obv[-5]) if len(obv) > 5 and not np.isnan(obv[-5]) else obv_val
@@ -1157,6 +1209,112 @@ class TechnicalAnalysisService:
             return f"检测到{len(bearish)}个看跌背离，可能预示下跌反转"
         else:
             return "同时存在看涨和看跌背离，信号不明确，建议结合其他指标"
+    
+    def rolling_vwap(self, symbol: str, timeframe: str = "1d", limit: int = 100, window: int = 20) -> Dict:
+        """
+        Rolling VWAP（滚动成交量加权平均价）
+        
+        VWAP = Σ(Price * Volume) / Σ(Volume)
+        Rolling VWAP 在指定窗口内计算 VWAP，常用于日内交易
+        
+        Args:
+            symbol: 交易对
+            timeframe: 时间周期
+            limit: K线数量
+            window: 滚动窗口大小
+        """
+        if not self.binance_service.can_fetch_public_data():
+            return {"error": "Binance 未配置"}
+        
+        try:
+            ohlcv_data = self.binance_service.get_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            
+            if "error" in ohlcv_data:
+                return ohlcv_data
+            
+            ohlcv = ohlcv_data.get('candles', [])
+            
+            if not ohlcv or len(ohlcv) < window:
+                return {"error": f"K线数据不足，需要至少 {window} 根 K 线，当前只有 {len(ohlcv) if ohlcv else 0} 根"}
+            
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            high_price = df['high'].values
+            low_price = df['low'].values
+            close_price = df['close'].values
+            volume = df['volume'].values
+            
+            typical_price = (high_price + low_price + close_price) / 3
+            
+            vwap_values = self._calculate_rolling_vwap(typical_price, volume, window)
+            
+            current_price = float(close_price[-1])
+            current_vwap = float(vwap_values[-1]) if not np.isnan(vwap_values[-1]) else current_price
+            
+            prev_vwap = float(vwap_values[-2]) if len(vwap_values) > 1 and not np.isnan(vwap_values[-2]) else current_vwap
+            
+            vwap_distance = ((current_price - current_vwap) / current_vwap * 100) if current_vwap != 0 else 0
+            
+            if current_price > current_vwap:
+                price_position = "above_vwap"
+                signal = "bullish"
+            elif current_price < current_vwap:
+                price_position = "below_vwap"
+                signal = "bearish"
+            else:
+                price_position = "at_vwap"
+                signal = "neutral"
+            
+            avg_vwap = np.nanmean(vwap_values[-10:]) if len(vwap_values) >= 10 else current_vwap
+            
+            return {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "window": window,
+                "timestamp": datetime.now().isoformat(),
+                "current_price": round(current_price, 4),
+                "rolling_vwap": round(current_vwap, 4),
+                "vwap_change": round(current_vwap - prev_vwap, 4),
+                "price_vs_vwap": {
+                    "position": price_position,
+                    "distance_pct": round(vwap_distance, 2),
+                    "signal": signal
+                },
+                "avg_vwap_10": round(float(avg_vwap), 4),
+                "vwap_series": self._safe_array(vwap_values),
+                "interpretation": self._interpret_vwap(current_price, current_vwap, vwap_distance)
+            }
+            
+        except Exception as e:
+            return {"error": f"Rolling VWAP 计算失败：{str(e)}"}
+    
+    def _calculate_rolling_vwap(self, typical_price: np.ndarray, volume: np.ndarray, window: int) -> np.ndarray:
+        """
+        计算滚动 VWAP
+        
+        VWAP = Σ(Typical Price * Volume) / Σ(Volume) within window
+        """
+        pv = typical_price * volume
+        
+        rolling_pv = np.convolve(pv, np.ones(window), mode='valid')
+        rolling_vol = np.convolve(volume, np.ones(window), mode='valid')
+        
+        vwap = rolling_pv / rolling_vol
+        
+        padding = window - 1
+        vwap_full = np.concatenate([np.full(padding, np.nan), vwap])
+        
+        return vwap_full
+    
+    def _interpret_vwap(self, current_price: float, vwap: float, distance_pct: float) -> str:
+        """解释 VWAP 信号"""
+        if abs(distance_pct) < 0.1:
+            return "价格接近 VWAP，观望等待明确方向"
+        elif distance_pct > 0.5:
+            return f"价格高于 VWAP {distance_pct:.2f}%，多方占优，可考虑回调做多"
+        elif distance_pct < -0.5:
+            return f"价格低于 VWAP {abs(distance_pct):.2f}%，空方占优，可考虑反弹做空"
+        else:
+            return "价格与 VWAP 偏离不大，趋势震荡整理中"
     
     def _safe_array(self, arr):
         """安全处理数组"""

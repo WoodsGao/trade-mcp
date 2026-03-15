@@ -1,4 +1,4 @@
-ccxt>=4.0.0
+python-binance>=1.0.35
 finnhub-python>=2.4.0
 mcp>=0.1.0
 python-dotenv>=1.0.0
